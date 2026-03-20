@@ -1,5 +1,7 @@
 # @sabbour/adaptive-ui-github-pack
 
+[![CI](https://github.com/sabbour/adaptive-ui-github-pack/actions/workflows/ci.yml/badge.svg)](https://github.com/sabbour/adaptive-ui-github-pack/actions/workflows/ci.yml)
+
 An [Adaptive UI](https://github.com/sabbour/adaptive-ui-framework) component pack for **GitHub** integration. Provides authentication via OAuth Device Flow, repository management, and pull request creation with generated artifacts.
 
 ## Components
