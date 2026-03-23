@@ -26,6 +26,14 @@ jobs:
       - run: npx tsc -b --noEmit
 
       - name: Publish @sabbour/adaptive-ui-github-pack
-        run: npm publish
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "${NAME}@${VERSION}" version 2>/dev/null; then
+            echo "✓ ${NAME}@${VERSION} already published — skipping"
+          else
+            npm publish
+            echo "✓ Published ${NAME}@${VERSION}"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
