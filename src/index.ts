@@ -1,5 +1,4 @@
 import type { ComponentPack } from '@sabbour/adaptive-ui-core';
-import type { AdaptiveNode } from '@sabbour/adaptive-ui-core';
 import { GitHubLogin, GitHubQuery, GitHubRepoInfo, GitHubPicker, GitHubCreatePR } from './components';
 import { GitHubSettings } from './GitHubSettings';
 import { getStoredToken } from './auth';
@@ -165,39 +164,5 @@ export function createGitHubPack(): ComponentPack {
         },
       },
     ],
-    intentResolvers: {
-      'github-orgs': {
-        description: 'Pick a GitHub org or personal account',
-        props: 'key, label?',
-        resolve: (ask) => ({
-          type: 'githubPicker',
-          api: '/user/orgs',
-          bind: (ask.key ?? ask.bind) as string,
-          label: (ask.label as string) ?? 'GitHub account',
-          labelKey: 'login',
-          valueKey: 'login',
-          includePersonal: true,
-          loadingLabel: 'Loading organizations...',
-        } as unknown as AdaptiveNode),
-      },
-      'github-repos': {
-        description: 'Pick a GitHub repository (requires githubOrg in state)',
-        props: 'key, label?, org?',
-        resolve: (ask) => {
-          const org = (ask.org as string) || '{{state.githubOrg}}';
-          // Use /users/ endpoint which works for both personal accounts and orgs
-          return {
-            type: 'githubPicker',
-            api: `/users/${org}/repos?sort=updated&type=owner`,
-            bind: (ask.key ?? ask.bind) as string,
-            label: (ask.label as string) ?? 'Repository',
-            labelKey: 'name',
-            valueKey: 'name',
-            descriptionKey: 'description',
-            loadingLabel: 'Loading repositories...',
-          } as unknown as AdaptiveNode;
-        },
-      },
-    },
   };
 }

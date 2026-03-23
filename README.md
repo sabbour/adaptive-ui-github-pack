@@ -44,6 +44,9 @@ const githubPack = createGitHubPack();
 
 - User must sign in via the `githubLogin` component (sets `__githubToken` in state)
 - A GitHub OAuth App or PAT for Device Flow authentication
+- OAuth Device Flow uses `/api/github-oauth/*` paths routed through the Azure Functions proxy (handles CORS for github.com)
+- The `githubPicker` tracks `__githubOrgIsPersonal` when a personal account is selected
+- The `githubQuery` auto-rewrites `POST /orgs/<user>/repos` → `POST /user/repos` for personal accounts
 
 ## License
 

@@ -9,8 +9,8 @@
 const DEFAULT_CLIENT_ID = 'Ov23liG3k61qLZnRjBGu';
 
 // Vite dev proxy paths (see vite.config.ts)
-const DEV_DEVICE_CODE_PATH = '/github-oauth/device/code';
-const DEV_TOKEN_PATH = '/github-oauth/access_token';
+const DEV_DEVICE_CODE_PATH = '/api/github-oauth/device/code';
+const DEV_TOKEN_PATH = '/api/github-oauth/access_token';
 
 // Direct GitHub URLs (for production with CORS proxy)
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
@@ -108,17 +108,18 @@ function isDevMode(): boolean {
 
 /**
  * Resolve the URL for a GitHub OAuth endpoint.
- * In dev mode, uses the Vite proxy paths to avoid CORS.
- * In production, uses a CORS proxy if configured, otherwise direct URLs.
+ * Uses /api/ paths that work in both dev (Vite proxy) and production (SWA Functions).
+ * Falls back to a user-configured CORS proxy if set.
  */
 function resolveOAuthUrl(endpoint: 'device_code' | 'access_token'): string {
-  if (isDevMode()) {
-    return endpoint === 'device_code' ? DEV_DEVICE_CODE_PATH : DEV_TOKEN_PATH;
-  }
+  const apiPath = endpoint === 'device_code' ? DEV_DEVICE_CODE_PATH : DEV_TOKEN_PATH;
+  // If running on a host with the /api/ backend (dev or SWA), use it directly
+  if (isDevMode()) return apiPath;
   const proxy = getStoredCorsProxy();
-  const url = endpoint === 'device_code' ? GITHUB_DEVICE_CODE_URL : GITHUB_TOKEN_URL;
-  if (!proxy) return url;
+  // If no custom CORS proxy configured, use the SWA Functions backend
+  if (!proxy) return apiPath;
   const base = proxy.endsWith('/') ? proxy : proxy + '/';
+  const url = endpoint === 'device_code' ? GITHUB_DEVICE_CODE_URL : GITHUB_TOKEN_URL;
   return base + url;
 }
 

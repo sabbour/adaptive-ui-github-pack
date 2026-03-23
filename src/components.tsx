@@ -272,10 +272,15 @@ export function GitHubQuery({ node }: AdaptiveComponentProps<GitHubQueryNode>) {
   const needsConfirm = node.confirm ?? method !== 'GET';
 
   // Simple interpolation for the API path
-  const resolvedApi = node.api.replace(/\{\{(?:state|st)\.(.+?)\}\}/g, (_m, key) => {
+  let resolvedApi = node.api.replace(/\{\{(?:state|st)\.(.+?)\}\}/g, (_m, key) => {
     const val = state[key];
     return val != null ? String(val) : '';
   });
+
+  // Auto-fix: /orgs/<user>/repos → /user/repos for personal accounts
+  if (state.__githubOrgIsPersonal === 'true' && method === 'POST') {
+    resolvedApi = resolvedApi.replace(/\/orgs\/[^/]+\/repos/, '/user/repos');
+  }
 
   const isReady = !!token && !resolvedApi.includes('//') && resolvedApi.length > 1;
 
@@ -346,7 +351,8 @@ export function GitHubQuery({ node }: AdaptiveComponentProps<GitHubQueryNode>) {
           border: '1px solid #d1d5db', background: '#fff',
           fontSize: '12px', cursor: 'pointer',
         },
-      }, React.createElement('img', { src: iconGitHubBlack, alt: '', width: 12, height: 12 }), 'Retry')
+        }, React.createElement('img', { src: iconGitHubBlack, alt: '', width: 12, height: 12, style: { verticalAlign: 'middle', marginRight: '6px' } }),
+        React.createElement('span', { style: { verticalAlign: 'middle' } }, 'Retry'))
     );
   }
 
@@ -371,8 +377,9 @@ export function GitHubQuery({ node }: AdaptiveComponentProps<GitHubQueryNode>) {
             padding: '8px 16px', borderRadius: '6px',
             border: 'none', backgroundColor: '#24292e', color: '#fff',
             fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '6px',
           },
-        }, React.createElement('img', { src: iconGitHubWhite, alt: '', width: 14, height: 14 }), typeof node.confirm === 'string' ? node.confirm : `Execute ${method}`),
+        }, React.createElement('img', { src: iconGitHubWhite, alt: '', width: 14, height: 14, style: { verticalAlign: 'middle' } }), typeof node.confirm === 'string' ? node.confirm : `Execute ${method}`),
         React.createElement('button', {
           onClick: () => dispatch({ type: 'SET', key: `${node.bind}_cancelled`, value: 'true' }),
           style: {
@@ -621,10 +628,15 @@ export function GitHubPicker({ node }: AdaptiveComponentProps<GitHubPickerNode>)
           dispatch({ type: 'SET', key: node.labelBind, value: selected.label });
         }
         // Persist org/repo selections across sessions
-        if (node.bind === 'githubOrg') storeOrg(val);
+        if (node.bind === 'githubOrg') {
+          storeOrg(val);
+          // Track whether this is a personal account vs org
+          const isPersonal = selected?.label.includes('(personal)') ?? false;
+          dispatch({ type: 'SET', key: '__githubOrgIsPersonal', value: isPersonal ? 'true' : '' });
+        }
         if (node.bind === 'githubRepo') storeRepo(val);
       },
-      placeholder: `\u2014 Select (${options.length} available) \u2014`,
+      placeholder: options.length > 0 ? 'Select an option' : 'Loading...',
     })
   );
 }
