@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://npm.pkg.github.com
 
       - run: npm install
@@ -37,3 +37,12 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify parent workspace
+        if: success() && secrets.ADAPTIVE_UI_DISPATCH_TOKEN != ''
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ADAPTIVE_UI_DISPATCH_TOKEN }}
+          repository: ${{ github.repository_owner }}/adaptive-ui
+          event-type: submodule-updated
+          client-payload: '{"sourceRepo":"${{ github.repository }}","tag":"${{ github.ref_name }}","package":"github-pack"}'
