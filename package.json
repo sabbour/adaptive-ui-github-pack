@@ -5,7 +5,10 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "files": ["src", "dist"],
+  "files": [
+    "src",
+    "dist"
+  ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
     "main": "src/index.ts",
@@ -37,5 +40,10 @@
     "react-dom": "^18.3.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-sealedbox-js": "^1.2.0",
+    "tweetnacl-util": "^0.15.1"
   }
 }

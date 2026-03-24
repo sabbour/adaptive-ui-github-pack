@@ -1,5 +1,5 @@
 import type { ComponentPack } from '@sabbour/adaptive-ui-core';
-import { GitHubLogin, GitHubQuery, GitHubRepoInfo, GitHubPicker, GitHubCreatePR } from './components';
+import { GitHubLogin, GitHubQuery, GitHubRepoInfo, GitHubPicker, GitHubCreatePR, GitHubSetSecret } from './components';
 import { GitHubSettings } from './GitHubSettings';
 import { getStoredToken } from './auth';
 import { trackedFetch } from '@sabbour/adaptive-ui-core';
@@ -61,6 +61,13 @@ githubCreatePR — {title?,baseBranch?,owner?,repo?,commitToSameBranch?}
   If commitToSameBranch:true, commits directly to baseBranch and skips PR creation.
   IMPORTANT: githubCreatePR automatically initializes empty repos (creates a README + main branch) if needed. Do NOT manually initialize repos with githubQuery — just use githubCreatePR directly after repo selection/creation.
 
+githubSetSecret — {secretName, secretValue, owner?, repo?, confirm?, bind?}
+  Sets a GitHub Actions repository secret. Handles the full flow: fetches repo public key, encrypts the value with libsodium sealed box, PUTs the encrypted secret.
+  secretValue supports {{state.key}} interpolation. owner/repo default to state.githubOrg/githubRepo.
+  Shows confirmation dialog by default (confirm:true). Auto-continues after success.
+  This is a SELF-CONTAINED component — show it ALONE on its turn, one secret per turn.
+  Example: {type:"githubSetSecret", secretName:"AZURE_CLIENT_ID", secretValue:"{{state.appClientId}}"}
+
 RULES:
 - NEVER put githubQuery inside a button onClick. Buttons only support actions (sendPrompt, setState), not components.
 - For write operations, place githubQuery directly in the layout with confirm set to a descriptive label string.
@@ -78,6 +85,7 @@ export function createGitHubPack(): ComponentPack {
       githubRepoInfo: GitHubRepoInfo,
       githubPicker: GitHubPicker,
       githubCreatePR: GitHubCreatePR,
+      githubSetSecret: GitHubSetSecret,
     },
     systemPrompt: GITHUB_SYSTEM_PROMPT,
     settingsComponent: GitHubSettings,

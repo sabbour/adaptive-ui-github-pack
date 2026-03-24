@@ -3,6 +3,7 @@ import type { AdaptiveComponentProps } from '@sabbour/adaptive-ui-core';
 import type { AdaptiveNodeBase } from '@sabbour/adaptive-ui-core';
 import { useAdaptive } from '@sabbour/adaptive-ui-core';
 import { trackedFetch } from '@sabbour/adaptive-ui-core';
+import { interpolate } from '@sabbour/adaptive-ui-core';
 import { SearchableDropdown } from '@sabbour/adaptive-ui-core';
 import { getArtifacts, subscribeArtifacts } from '@sabbour/adaptive-ui-core';
 import { createPullRequest, updatePullRequestBranch } from '@sabbour/adaptive-ui-core';
@@ -70,7 +71,7 @@ interface GitHubLoginNode extends AdaptiveNodeBase {
 }
 
 export function GitHubLogin({ node }: AdaptiveComponentProps<GitHubLoginNode>) {
-  const { state, dispatch, disabled } = useAdaptive();
+  const { state, dispatch, disabled, sendPrompt } = useAdaptive();
   const token = (state.__githubToken as string) || undefined;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +102,8 @@ export function GitHubLogin({ node }: AdaptiveComponentProps<GitHubLoginNode>) {
       .then((data) => {
         setUser({ login: data.login, name: data.name, avatar_url: data.avatar_url });
         dispatch({ type: 'SET', key: '__githubUser', value: data.login });
+        // Auto-continue — token was already set, just verified
+        setTimeout(() => sendPrompt(`Signed in to GitHub as ${data.login}. Continue.`, null), 500);
       })
       .catch(() => {
         dispatch({ type: 'SET', key: '__githubToken', value: '' });
@@ -124,6 +127,8 @@ export function GitHubLogin({ node }: AdaptiveComponentProps<GitHubLoginNode>) {
         dispatch({ type: 'SET', key: '__githubToken', value: storedToken });
         dispatch({ type: 'SET', key: '__githubUser', value: login });
         setUser({ login, name: null, avatar_url: '' });
+        // Auto-continue after sign-in
+        setTimeout(() => sendPrompt(`Signed in to GitHub as ${login}. Continue.`, null), 500);
       }
       setDeviceCode(null);
       setPolling(false);
@@ -262,7 +267,7 @@ interface GitHubQueryNode extends AdaptiveNodeBase {
 
 export function GitHubQuery({ node }: AdaptiveComponentProps<GitHubQueryNode>) {
   const token = useGitHubToken();
-  const { state, dispatch, disabled } = useAdaptive();
+  const { state, dispatch, disabled, sendPrompt } = useAdaptive();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -326,6 +331,11 @@ export function GitHubQuery({ node }: AdaptiveComponentProps<GitHubQueryNode>) {
       const resultStr = JSON.stringify(data);
       setResult(data);
       dispatch({ type: 'SET', key: node.bind, value: resultStr });
+      // Auto-continue after successful write operations
+      if (method !== 'GET') {
+        const name = data?.name || data?.full_name || '';
+        setTimeout(() => sendPrompt(`GitHub ${method} ${resolvedApi} succeeded${name ? ': ' + name : ''}. Continue.`, null), 500);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
@@ -527,7 +537,7 @@ interface GitHubPickerNode extends AdaptiveNodeBase {
 
 export function GitHubPicker({ node }: AdaptiveComponentProps<GitHubPickerNode>) {
   const token = useGitHubToken();
-  const { state, dispatch, disabled } = useAdaptive();
+  const { state, dispatch, disabled, sendPrompt } = useAdaptive();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<Array<{ label: string; value: string; description?: string }>>([]);
@@ -635,6 +645,9 @@ export function GitHubPicker({ node }: AdaptiveComponentProps<GitHubPickerNode>)
           dispatch({ type: 'SET', key: '__githubOrgIsPersonal', value: isPersonal ? 'true' : '' });
         }
         if (node.bind === 'githubRepo') storeRepo(val);
+        // Auto-continue after selection
+        const displayName = selected?.label ?? val;
+        setTimeout(() => sendPrompt(`Selected ${node.bind === 'githubOrg' ? 'GitHub account' : node.bind === 'githubRepo' ? 'repository' : 'option'}: ${displayName}. Continue.`, null), 300);
       },
       placeholder: options.length > 0 ? 'Select an option' : 'Loading...',
     })
@@ -883,4 +896,173 @@ export function GitHubCreatePR({ node }: AdaptiveComponentProps<GitHubCreatePRNo
             : (commitToSameBranch ? `Commit to ${baseBranch}` : 'Create Pull Request')
         ))
   );
+}
+
+// ═══════════════════════════════════════
+// GitHub Set Secret (encrypts + sets repo action secret)
+// ═══════════════════════════════════════
+
+interface GitHubSetSecretNode extends AdaptiveNodeBase {
+  type: 'githubSetSecret';
+  /** Repository owner (org or user). Defaults to state.githubOrg */
+  owner?: string;
+  /** Repository name. Defaults to state.githubRepo */
+  repo?: string;
+  /** Secret name (e.g. AZURE_CLIENT_ID) */
+  secretName: string;
+  /** Secret value — supports {{state.key}} interpolation */
+  secretValue: string;
+  /** State key to store result */
+  bind?: string;
+  /** Require user confirmation before setting */
+  confirm?: boolean;
+}
+
+export function GitHubSetSecret({ node }: AdaptiveComponentProps<GitHubSetSecretNode>) {
+  const token = useGitHubToken();
+  const { state, dispatch, disabled, sendPrompt } = useAdaptive();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [confirmed, setConfirmed] = useState(!(node.confirm ?? true));
+
+  const owner = interpolate(node.owner || '{{state.githubOrg}}', state as Record<string, string>);
+  const repo = interpolate(node.repo || '{{state.githubRepo}}', state as Record<string, string>);
+  const secretName = node.secretName;
+  const secretValue = interpolate(node.secretValue, state as Record<string, string>);
+
+  async function setSecret() {
+    if (!token || !owner || !repo || !secretName || !secretValue) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Step 1: Get the repo's public key
+      const keyRes = await trackedFetch(`https://api.github.com/repos/${owner}/${repo}/actions/secrets/public-key`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+        },
+      });
+      if (!keyRes.ok) throw new Error(`Failed to get public key: ${keyRes.status}`);
+      const { key, key_id } = await keyRes.json();
+
+      // Step 2: Encrypt the secret using libsodium sealed box
+      const sealedBox = await import('tweetnacl-sealedbox-js');
+      const publicKeyBytes = Uint8Array.from(atob(key), c => c.charCodeAt(0));
+      const secretBytes = new TextEncoder().encode(secretValue);
+      const encrypted = sealedBox.seal(secretBytes, publicKeyBytes);
+      const encryptedValue = btoa(String.fromCharCode(...encrypted));
+
+      // Step 3: PUT the secret
+      const putRes = await trackedFetch(`https://api.github.com/repos/${owner}/${repo}/actions/secrets/${secretName}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ encrypted_value: encryptedValue, key_id }),
+      });
+
+      if (!putRes.ok) {
+        const errBody = await putRes.text();
+        throw new Error(`Failed to set secret (${putRes.status}): ${errBody}`);
+      }
+
+      setDone(true);
+      if (node.bind) {
+        dispatch({ type: 'SET', key: node.bind, value: 'true' });
+      }
+      // Auto-continue
+      setTimeout(() => sendPrompt(`Secret ${secretName} set successfully on ${owner}/${repo}. Continue.`, null), 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to set secret');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (disabled) return null;
+
+  if (!token) {
+    return React.createElement(Banner, { message: 'Connect to GitHub first.', type: 'warning' });
+  }
+
+  if (done) {
+    return React.createElement('div', {
+      style: {
+        padding: '10px 14px', borderRadius: '8px',
+        backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0',
+        fontSize: '13px', color: '#166534',
+      },
+    }, `✓ Secret ${secretName} set on ${owner}/${repo}`);
+  }
+
+  if (loading) {
+    return React.createElement(LoadingSpinner, { label: `Setting secret ${secretName}...` });
+  }
+
+  if (error) {
+    return React.createElement('div', null,
+      React.createElement(Banner, { message: error, type: 'error' }),
+      React.createElement('button', {
+        onClick: setSecret,
+        style: {
+          marginTop: '8px', padding: '6px 12px', borderRadius: '6px',
+          border: '1px solid #d1d5db', background: '#fff',
+          fontSize: '12px', cursor: 'pointer',
+        },
+      }, 'Retry')
+    );
+  }
+
+  if (!confirmed) {
+    return React.createElement('div', {
+      style: {
+        padding: '14px', borderRadius: '8px',
+        border: '1px solid #e5e7eb', backgroundColor: '#f9fafb',
+      },
+    },
+      React.createElement('div', {
+        style: { fontSize: '14px', fontWeight: 500, marginBottom: '4px' },
+      }, `Set repository secret: ${secretName}`),
+      React.createElement('div', {
+        style: { fontSize: '12px', color: '#6b7280', marginBottom: '10px', fontFamily: 'monospace' },
+      }, `${owner}/${repo}`),
+      React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+        React.createElement('button', {
+          onClick: () => { setConfirmed(true); setSecret(); },
+          style: {
+            padding: '8px 16px', borderRadius: '6px',
+            border: 'none', backgroundColor: '#24292e', color: '#fff',
+            fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          },
+        },
+          React.createElement('img', { src: iconGitHubWhite, alt: '', width: 14, height: 14 }),
+          `Set ${secretName}`
+        ),
+        React.createElement('button', {
+          onClick: () => {
+            if (node.bind) dispatch({ type: 'SET', key: node.bind, value: 'skipped' });
+          },
+          style: {
+            padding: '8px 16px', borderRadius: '6px',
+            border: '1px solid #d1d5db', backgroundColor: '#fff',
+            fontSize: '13px', cursor: 'pointer',
+          },
+        }, 'Skip')
+      )
+    );
+  }
+
+  // Auto-execute if no confirmation needed
+  React.useEffect(() => {
+    if (confirmed && !done && !loading && !error) {
+      setSecret();
+    }
+  }, [confirmed]);
+
+  return React.createElement(LoadingSpinner, { label: `Setting secret ${secretName}...` });
 }
