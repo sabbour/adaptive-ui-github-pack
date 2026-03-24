@@ -39,7 +39,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify parent workspace
-        if: success() && secrets.ADAPTIVE_UI_DISPATCH_TOKEN != ''
+        if: ${{ success() }}
+        continue-on-error: true
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.ADAPTIVE_UI_DISPATCH_TOKEN }}
